@@ -39,46 +39,64 @@ class LlmService:
         self._client = OpenAI(
             base_url=settings.teacher_proxy_base_url,
             api_key=settings.student_id,
+            max_retries=settings.llm_max_retries,
         )
 
-    def answer_question(self, question: str, context: str) -> LlmAnswer:
+    def answer_question(self, question: str, context: str, max_retries: int = 2) -> LlmAnswer:
         prompt = build_prompt(question, context)
-        try:
-            response = self._client.chat.completions.create(
-                model=self._settings.llm_model,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "Return exactly one character only: A, B, C, or D.",
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0,
-                timeout=self._settings.llm_timeout_seconds,
-            )
-        except APITimeoutError as error:
-            raise TeacherProxyTimeoutError("Teacher proxy request timed out") from error
-        except (APIConnectionError, APIStatusError) as error:
-            raise TeacherProxyRequestError("Teacher proxy request failed") from error
+        last_error: Exception | None = None
+        for attempt in range(max_retries + 1):
+            try:
+                response = self._client.chat.completions.create(
+                    model=self._settings.llm_model,
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are an expert Vietnamese exam answering assistant. "
+                                "Return exactly one character: A, B, C, or D. "
+                                "No explanation, no punctuation."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                    temperature=0,
+                    timeout=self._settings.llm_timeout_seconds,
+                )
+                raw_answer = response.choices[0].message.content or ""
+                answer = normalize_answer(raw_answer)
+                if answer is None:
+                    raise LlmAnswerParseError(
+                        f"Could not parse answer from model output: {raw_answer!r}"
+                    )
+                return LlmAnswer(answer=answer, raw_answer=raw_answer)
+            except APITimeoutError as error:
+                last_error = error
+                if attempt < max_retries:
+                    continue
+            except (APIConnectionError, APIStatusError) as error:
+                last_error = error
+                if attempt < max_retries:
+                    continue
 
-        raw_answer = response.choices[0].message.content or ""
-        answer = normalize_answer(raw_answer)
-        if answer is None:
-            raise LlmAnswerParseError(f"Could not parse answer from model output: {raw_answer!r}")
-        return LlmAnswer(answer=answer, raw_answer=raw_answer)
+        if isinstance(last_error, APITimeoutError):
+            raise TeacherProxyTimeoutError("Teacher proxy request timed out") from last_error
+        raise TeacherProxyRequestError("Teacher proxy request failed") from last_error
 
 
 def build_prompt(question: str, context: str) -> str:
     return f"""
-You are answering a Vietnamese multiple-choice question using only the provided document context.
+You are answering a Vietnamese multiple-choice question using ONLY the provided document context.
 
-Required rules:
-- Return exactly one character: A, B, C, or D.
-- Do not explain.
-- Compare the meaning of each option with the context, not just exact words.
-- Prefer the option that is directly supported by the context.
-- The question already contains the full answer options.
-- If the context is not enough, choose the most likely option from the question and context.
+CRITICAL RULES:
+1. Read ALL the context carefully before answering.
+2. Identify whether the question asks for the correct, incorrect, or exception option.
+3. Match the MEANING of each option against the context, not just exact words.
+4. If the question asks about a definition, find the exact definition in context.
+5. If the question asks about a list/steps/process, verify each option against the context.
+6. Choose the option with the STRONGEST and most DIRECT evidence from the context.
+7. If no option is perfectly supported, choose the CLOSEST match.
+8. Return ONLY one character: A, B, C, or D.
 
 Relevant document context:
 {context}

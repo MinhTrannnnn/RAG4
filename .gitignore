@@ -5,6 +5,5 @@ __pycache__/
 logs/
 data/*
 !data/.gitkeep
-.uv-cache/
 models/*
 !models/.gitkeep

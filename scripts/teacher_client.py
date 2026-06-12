@@ -5,6 +5,7 @@ import re
 import socket
 import subprocess
 import sys
+from pathlib import Path
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 from urllib.parse import urlparse
@@ -12,11 +13,16 @@ from urllib.parse import urlparse
 from dotenv import load_dotenv
 
 
-load_dotenv()
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+load_dotenv(PROJECT_ROOT / ".env")
 
 TEACHER_BASE_URL = os.getenv("TEACHER_BASE_URL", "http://192.168.50.218:8000/api/v1")
 STUDENT_ID = os.getenv("STUDENT_ID", "B22DCVT351")
 STUDENT_PORT = int(os.getenv("STUDENT_PORT", "5000"))
+MY_SERVER_URL = os.getenv("MY_SERVER_URL", "").strip().rstrip("/")
+VECTOR_DB_PATH = Path(os.getenv("VECTOR_DB_PATH", "data/vector_db.pkl"))
+if not VECTOR_DB_PATH.is_absolute():
+    VECTOR_DB_PATH = (PROJECT_ROOT / VECTOR_DB_PATH).resolve()
 
 
 def guess_lan_ip() -> str:
@@ -78,7 +84,7 @@ def print_json(data):
 
 def command_register(args):
     ensure_config()
-    server_url = args.server_url
+    server_url = args.server_url or MY_SERVER_URL
     if not server_url:
         server_url = f"http://{guess_lan_ip()}:{STUDENT_PORT}"
 
@@ -94,11 +100,21 @@ def command_register(args):
 def command_evaluate(args):
     ensure_config()
     document_received = bool(getattr(args, "skip_upload", False))
+    if document_received and (
+        not VECTOR_DB_PATH.is_file() or VECTOR_DB_PATH.stat().st_size == 0
+    ):
+        raise RuntimeError(
+            f"Cannot use --skip-upload because vector DB is missing: {VECTOR_DB_PATH}. "
+            "Run python evaluate.py once without --skip-upload first."
+        )
+
+    print(f"Starting evaluation with document_received={str(document_received).lower()}")
     result = request_json(
         "POST",
         "/competition/evaluate",
         {"document_received": document_received},
-        timeout=900,
+        # 100 questions x up to 60 seconds, plus the optional 2-minute upload.
+        timeout=7200,
     )
     print_json(result)
 

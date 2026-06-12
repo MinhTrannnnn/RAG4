@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import math
 import os
 import pickle
 import re
+from collections import Counter
 from dataclasses import dataclass
 from threading import Lock
 
@@ -15,7 +17,15 @@ from app.config import Settings
 VECTOR_DB_SCHEMA_VERSION = 1
 TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
 SPLIT_PATTERN = re.compile(
-    r"\n\s*\n+|\n(?=\s*(?:Chuong|Bai|Muc|Cau|Slide|Phan|Dieu)\b)",
+    r"\n\s*\n+|"
+    r"\n(?=\s*(?:"
+    r"Chương|Chuong|Bài|Bai|Mục|Muc|Câu|Cau|"
+    r"Slide|Phần|Phan|Điều|Dieu|Khoản|Khoan"
+    r")\s*(?:\d+|[IVXLCDM]+)?\b)",
+    re.IGNORECASE,
+)
+HEADING_PATTERN = re.compile(
+    r"^((?:Chuong|Bai|Muc|Phan|Dieu|Khoan|Slide)\s+(?:\d+|[IVXLCDM]+)[^\n]*)",
     re.IGNORECASE,
 )
 
@@ -32,6 +42,46 @@ class Chunk:
 class ScoredChunk:
     score: float
     chunk: Chunk
+
+
+class BM25:
+    """Lightweight BM25 scorer for hybrid retrieval."""
+
+    def __init__(self, chunks: list[Chunk], k1: float = 1.4, b: float = 0.75):
+        self.k1 = k1
+        self.b = b
+        self.n_docs = len(chunks)
+        self.doc_freqs: list[Counter] = []
+        self.doc_lens: list[int] = []
+        df: dict[str, int] = {}
+
+        for chunk in chunks:
+            tokens = TOKEN_PATTERN.findall(chunk.text.lower())
+            tf = Counter(t for t in tokens if len(t) > 1)
+            self.doc_freqs.append(tf)
+            self.doc_lens.append(sum(tf.values()))
+            for term in tf:
+                df[term] = df.get(term, 0) + 1
+
+        self.avg_dl = sum(self.doc_lens) / max(self.n_docs, 1)
+        self.idf: dict[str, float] = {
+            term: math.log((self.n_docs - freq + 0.5) / (freq + 0.5) + 1.0)
+            for term, freq in df.items()
+        }
+
+    def score(self, query_tokens: list[str], doc_index: int) -> float:
+        tf = self.doc_freqs[doc_index]
+        dl = self.doc_lens[doc_index]
+        total = 0.0
+        for term in query_tokens:
+            if term not in tf:
+                continue
+            term_freq = tf[term]
+            idf = self.idf.get(term, 0.0)
+            numerator = term_freq * (self.k1 + 1)
+            denominator = term_freq + self.k1 * (1 - self.b + self.b * dl / self.avg_dl)
+            total += idf * numerator / denominator
+        return total
 
 
 def tokenize(text: str) -> set[str]:
@@ -100,7 +150,20 @@ def split_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     if current:
         result.append(current)
 
-    return result
+    # Heading enrichment: prepend section heading to chunks that lack one
+    enriched: list[str] = []
+    last_heading = ""
+    for chunk_text in result:
+        heading_match = HEADING_PATTERN.match(chunk_text)
+        if heading_match:
+            last_heading = heading_match.group(1).strip()
+            enriched.append(chunk_text)
+        elif last_heading and last_heading not in chunk_text:
+            enriched.append(f"[{last_heading}]\n{chunk_text}")
+        else:
+            enriched.append(chunk_text)
+
+    return enriched
 
 
 def build_context(
@@ -128,6 +191,7 @@ class RagService:
         self._model: SentenceTransformer | None = None
         self._document_id: str | None = None
         self._chunks: list[Chunk] = []
+        self._bm25: BM25 | None = None
         self._lock = Lock()
         self._load_persisted_index()
 
@@ -170,6 +234,7 @@ class RagService:
         with self._lock:
             self._document_id = payload.get("document_id")
             self._chunks = chunks
+            self._bm25 = BM25(chunks) if chunks else None
 
     def _save_persisted_index(self, doc_id: str | None, chunks: list[Chunk]) -> None:
         path = self._settings.vector_db_path
@@ -211,9 +276,11 @@ class RagService:
             for index, chunk_text in enumerate(chunk_texts)
         ]
 
+        bm25 = BM25(chunks)
         with self._lock:
             self._document_id = doc_id
             self._chunks = chunks
+            self._bm25 = bm25
 
         self._save_persisted_index(doc_id, chunks)
         return doc_id, len(chunks)
@@ -221,6 +288,7 @@ class RagService:
     def retrieve(self, question: str, top_k: int | None = None) -> list[ScoredChunk]:
         with self._lock:
             chunks = list(self._chunks)
+            bm25 = self._bm25
 
         if not chunks:
             raise LookupError("No document has been uploaded yet")
@@ -232,14 +300,13 @@ class RagService:
             normalize_embeddings=True,
         )
         query_embedding = query_embeddings[0]
-        lexical_tokens = tokenize(question)
+        query_tokens = [t.lower() for t in TOKEN_PATTERN.findall(question) if len(t) > 1]
 
         scored_chunks: list[ScoredChunk] = []
-        for chunk in chunks:
+        for i, chunk in enumerate(chunks):
             semantic_score = float(np.dot(query_embedding, chunk.embedding))
-            overlap = lexical_tokens & chunk.tokens
-            lexical_score = len(overlap) / max(len(lexical_tokens), 1)
-            score = semantic_score + (0.08 * lexical_score)
+            bm25_score = bm25.score(query_tokens, i) if bm25 else 0.0
+            score = semantic_score + (0.05 * bm25_score)
             scored_chunks.append(ScoredChunk(score=score, chunk=chunk))
 
         scored_chunks.sort(key=lambda item: item.score, reverse=True)
