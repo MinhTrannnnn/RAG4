@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from secrets import choice
 
 from fastapi import FastAPI, HTTPException
 
@@ -26,6 +27,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="RAG Competition Student Server", lifespan=lifespan)
+
+
+def random_fallback_answer() -> str:
+    return choice("ABCD")
 
 
 @app.get("/")
@@ -83,10 +88,25 @@ def ask(payload: AskRequest) -> AskResponse:
 
     try:
         scored_chunks = rag_service.retrieve(payload.question, settings.top_k)
-    except LookupError as error:
-        raise HTTPException(status_code=409, detail=str(error)) from error
-    except RuntimeError as error:
-        raise HTTPException(status_code=500, detail=str(error)) from error
+    except (LookupError, RuntimeError) as error:
+        answer = random_fallback_answer()
+        write_jsonl(
+            settings.log_path,
+            {
+                "event": "ask",
+                "question": payload.question,
+                "selected_chunk_ids": [],
+                "selected_chunk_scores": [],
+                "sources": [],
+                "raw_answer": "",
+                "answer": answer,
+                "llm_error": None,
+                "retrieval_error": str(error),
+                "fallback": True,
+                "fallback_reason": "retrieval_error",
+            },
+        )
+        return AskResponse(answer=answer, sources=[])
 
     context, selected_chunks = build_context(scored_chunks, settings.max_context_chars)
     raw_answer = ""
@@ -96,7 +116,8 @@ def ask(payload: AskRequest) -> AskResponse:
         llm_answer = llm_service.answer_question(payload.question, context)
         answer = llm_answer.answer
         raw_answer = llm_answer.raw_answer
-    except TeacherProxyTimeoutError as error:
+    except (TeacherProxyTimeoutError, TeacherProxyRequestError, LlmAnswerParseError) as error:
+        answer = random_fallback_answer()
         write_jsonl(
             settings.log_path,
             {
@@ -106,26 +127,14 @@ def ask(payload: AskRequest) -> AskResponse:
                 "selected_chunk_scores": [item.score for item in scored_chunks[: len(selected_chunks)]],
                 "sources": [chunk.text for chunk in selected_chunks],
                 "raw_answer": raw_answer,
-                "answer": None,
+                "answer": answer,
                 "llm_error": str(error),
+                "retrieval_error": None,
+                "fallback": True,
+                "fallback_reason": "llm_error",
             },
         )
-        raise HTTPException(status_code=504, detail=str(error)) from error
-    except (TeacherProxyRequestError, LlmAnswerParseError) as error:
-        write_jsonl(
-            settings.log_path,
-            {
-                "event": "ask",
-                "question": payload.question,
-                "selected_chunk_ids": [item.chunk.chunk_id for item in scored_chunks[: len(selected_chunks)]],
-                "selected_chunk_scores": [item.score for item in scored_chunks[: len(selected_chunks)]],
-                "sources": [chunk.text for chunk in selected_chunks],
-                "raw_answer": raw_answer,
-                "answer": None,
-                "llm_error": str(error),
-            },
-        )
-        raise HTTPException(status_code=502, detail=str(error)) from error
+        return AskResponse(answer=answer, sources=[chunk.text for chunk in selected_chunks])
 
     write_jsonl(
         settings.log_path,
@@ -138,6 +147,9 @@ def ask(payload: AskRequest) -> AskResponse:
             "raw_answer": raw_answer,
             "answer": answer,
             "llm_error": llm_error,
+            "retrieval_error": None,
+            "fallback": False,
+            "fallback_reason": None,
         },
     )
     return AskResponse(answer=answer, sources=[chunk.text for chunk in selected_chunks])

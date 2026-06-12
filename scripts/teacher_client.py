@@ -113,7 +113,8 @@ def command_evaluate(args):
         "POST",
         "/competition/evaluate",
         {"document_received": document_received},
-        # 100 questions x up to 60 seconds, plus the optional 2-minute upload.
+        # The current slide specifies 10 questions. Keep a generous timeout so
+        # the same client can also run against the local 100-question stress test.
         timeout=7200,
     )
     print_json(result)

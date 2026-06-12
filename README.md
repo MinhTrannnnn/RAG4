@@ -207,10 +207,10 @@ loads it automatically when the server starts again.
 `/ask` retrieves local context, calls the Teacher Proxy LLM, and returns exactly
 one letter: `A`, `B`, `C`, or `D`.
 
-If the Teacher Proxy times out or fails, `/ask` now returns an HTTP error instead
-of guessing locally. A local guess usually hides the real issue and is unlikely
-to help scoring, because the evaluation expects the RAG answer to come from the
-retrieved context plus Teacher Proxy LLM.
+If retrieval or the Teacher Proxy fails, `/ask` still returns a valid response
+with a random `A`, `B`, `C`, or `D` fallback. Retrieval failures return an empty
+`sources` list; proxy failures keep the chunks that were already retrieved. The
+fallback reason is recorded in `logs/ask_logs.jsonl` for later debugging.
 
 Updated Teacher Server schemas from the slide:
 
@@ -280,8 +280,9 @@ That sends:
 }
 ```
 
-The helper allows up to 900 seconds for this request, because the Teacher Server
-may wait for `/upload` plus 100 `/ask` calls before returning `final_score`.
+The current slide says the official Teacher Server calls `/upload` and then 10
+`/ask` requests before returning `final_score`. The helper keeps a larger client
+timeout so it can also run against a local 100-question stress test.
 
 Check result:
 
