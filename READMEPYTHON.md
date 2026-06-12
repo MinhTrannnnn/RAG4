@@ -16,6 +16,10 @@ mix dependencies between projects. Use it only when needed.
 
 ## Check Python
 
+If the machine only has VS Code, install Python 3.10 or newer first from
+`https://www.python.org/downloads/`. During install, tick
+`Add python.exe to PATH`.
+
 ```powershell
 python --version
 python -c "import sys; print(sys.executable)"
@@ -35,7 +39,7 @@ py --version
 From the project folder:
 
 ```powershell
-cd D:\InformationRetrieval\ONTHI\RAG3
+cd D:\InformationRetrieval\ONTHI\RAG4
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
@@ -127,4 +131,3 @@ If port `5000` is busy:
 netstat -ano | findstr :5000
 Stop-Process -Id PROCESS_ID
 ```
-

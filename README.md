@@ -40,12 +40,51 @@ Not included in Git:
 - `models/vietnamese-sbert/`
 - `logs/`
 
+## Fresh Windows Machine With Only VS Code
+
+If the machine only has VS Code, install/check these first:
+
+1. Install Python 3.10 or newer from `https://www.python.org/downloads/`.
+   During install, tick `Add python.exe to PATH`.
+2. Install Git for Windows from `https://git-scm.com/download/win` if `git`
+   is not available.
+3. Open VS Code, then open a PowerShell terminal:
+   `Terminal -> New Terminal`.
+4. Check:
+
+```powershell
+python --version
+git --version
+```
+
+If `python` opens Microsoft Store, disable Python app execution aliases in
+Windows Settings, or reinstall Python and tick `Add python.exe to PATH`.
+
+Clone the repository:
+
+```powershell
+cd D:\InformationRetrieval\ONTHI
+git clone https://github.com/MinhTrannnnn/RAG4.git
+cd RAG4
+```
+
+Then continue with the quick start below.
+
+If VS Code asks for a Python interpreter after `.venv` is created, choose:
+
+```text
+.\.venv\Scripts\python.exe
+```
+
+VS Code may auto-activate `.venv` in new terminals. That is fine, but the
+explicit commands below work even without activation.
+
 ## Quick Start After Clone
 
 Go to the project folder:
 
 ```powershell
-cd D:\InformationRetrieval\ONTHI\RAG3
+cd D:\InformationRetrieval\ONTHI\RAG4
 ```
 
 Check Python:
@@ -134,7 +173,7 @@ python -c "import sys; print(sys.executable)"
 For this project, the output should point to:
 
 ```text
-D:\InformationRetrieval\ONTHI\RAG3\.venv\Scripts\python.exe
+D:\InformationRetrieval\ONTHI\RAG4\.venv\Scripts\python.exe
 ```
 
 If VS Code activates the wrong project environment, either select the correct
