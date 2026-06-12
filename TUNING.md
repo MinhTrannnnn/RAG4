@@ -187,7 +187,8 @@ Do not set much higher than 60 because Teacher Server may time out first.
 3. If sources are wrong, tune `TOP_K`, `CHUNK_SIZE`, `CHUNK_OVERLAP`, then scoring weight.
 4. If sources are right but answer is wrong, tune prompt in `app/llm.py`.
 5. If errors mention timeout/proxy, check LAN/Teacher Proxy and maybe set `LLM_TIMEOUT_SECONDS=55`.
-6. Run `reset.py`, restart server if needed, then run `evaluate.py` again.
+6. Run `reset.py` or register again, restart server if needed, then run
+   `evaluate.py --skip-upload` if `data/vector_db.pkl` already exists.
 
 ## Reasonable Presets
 
@@ -217,4 +218,3 @@ CHUNK_OVERLAP=140
 TOP_K=6
 MAX_CONTEXT_CHARS=7000
 ```
-

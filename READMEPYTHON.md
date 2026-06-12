@@ -63,6 +63,7 @@ Edit `.env`, especially:
 STUDENT_ID=YOUR_STUDENT_ID
 TEACHER_BASE_URL=http://192.168.50.218:8000/api/v1
 EMBEDDING_MODEL_PATH=models/vietnamese-sbert
+VECTOR_DB_PATH=data/vector_db.pkl
 ```
 
 ## Download Embedding Model
@@ -98,6 +99,17 @@ python register.py
 python evaluate.py
 python result.py
 ```
+
+`python evaluate.py` sends `document_received=false`, so the Teacher will call
+`/upload` first. After upload has succeeded once and `data/vector_db.pkl` exists,
+use this for later attempts:
+
+```powershell
+python evaluate.py --skip-upload
+```
+
+That sends `document_received=true`, so the Teacher skips `/upload` and only
+sends questions.
 
 If needed:
 

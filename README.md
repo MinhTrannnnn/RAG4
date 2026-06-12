@@ -39,6 +39,7 @@ Not included in Git:
 - `.env`
 - `models/vietnamese-sbert/`
 - `logs/`
+- `data/vector_db.pkl`
 
 ## Fresh Windows Machine With Only VS Code
 
@@ -117,6 +118,7 @@ STUDENT_ID=YOUR_STUDENT_ID
 STUDENT_PORT=5000
 TEACHER_BASE_URL=http://192.168.50.218:8000/api/v1
 EMBEDDING_MODEL_PATH=models/vietnamese-sbert
+VECTOR_DB_PATH=data/vector_db.pkl
 ```
 
 Download the embedding model:
@@ -187,10 +189,20 @@ The slide says that after you call `POST /competition/evaluate`, the Teacher
 Server actively calls your Student Server:
 
 1. `POST /upload` once with the source document, timeout up to 120 seconds.
-2. `POST /ask` 10 times, timeout up to 60 seconds for each question.
+2. `POST /ask` 100 times, timeout up to 60 seconds for each question.
 
 The Teacher may omit `doc_id` in `/upload`; this is valid because `doc_id` is
 optional.
+
+The exam announcement says each student should submit at most 5 evaluation
+attempts. The `document_received` body field controls whether the Teacher sends
+the document again:
+
+- first attempt or when `data/vector_db.pkl` does not exist: `false`
+- later attempts after upload/vector DB already succeeded: `true`
+
+This project saves the vector DB at `data/vector_db.pkl` after `/upload`, then
+loads it automatically when the server starts again.
 
 `/ask` retrieves local context, calls the Teacher Proxy LLM, and returns exactly
 one letter: `A`, `B`, `C`, or `D`.
@@ -210,7 +222,7 @@ Response: message, student_id, server_url
 
 POST /competition/evaluate
 Header: X-Student-ID
-Body: { "document_received": false }
+Body: { "document_received": false } on first upload, or true after vector DB exists
 Response: message, final_score
 
 POST /competition/reset
@@ -245,7 +257,7 @@ Start evaluation:
 .\.venv\Scripts\python.exe evaluate.py
 ```
 
-This sends the request body required by the updated slide:
+This is the first-attempt/full flow and sends:
 
 ```json
 {
@@ -253,8 +265,23 @@ This sends the request body required by the updated slide:
 }
 ```
 
+After `/upload` succeeded once and `data/vector_db.pkl` exists, re-submit without
+uploading the document again:
+
+```powershell
+.\.venv\Scripts\python.exe evaluate.py --skip-upload
+```
+
+That sends:
+
+```json
+{
+  "document_received": true
+}
+```
+
 The helper allows up to 900 seconds for this request, because the Teacher Server
-may wait for `/upload` plus 10 `/ask` calls before returning `final_score`.
+may wait for `/upload` plus 100 `/ask` calls before returning `final_score`.
 
 Check result:
 

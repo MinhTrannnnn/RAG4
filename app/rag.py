@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import pickle
 import re
 from dataclasses import dataclass
 from threading import Lock
@@ -11,6 +12,7 @@ from sentence_transformers import SentenceTransformer
 from app.config import Settings
 
 
+VECTOR_DB_SCHEMA_VERSION = 1
 TOKEN_PATTERN = re.compile(r"\w+", re.UNICODE)
 SPLIT_PATTERN = re.compile(
     r"\n\s*\n+|\n(?=\s*(?:Chuong|Bai|Muc|Cau|Slide|Phan|Dieu)\b)",
@@ -127,6 +129,7 @@ class RagService:
         self._document_id: str | None = None
         self._chunks: list[Chunk] = []
         self._lock = Lock()
+        self._load_persisted_index()
 
     @property
     def chunk_count(self) -> int:
@@ -148,6 +151,39 @@ class RagService:
                 local_files_only=True,
             )
         return self._model
+
+    def _load_persisted_index(self) -> None:
+        path = self._settings.vector_db_path
+        if not path.is_file():
+            return
+
+        with path.open("rb") as file:
+            payload = pickle.load(file)
+
+        if payload.get("version") != VECTOR_DB_SCHEMA_VERSION:
+            raise RuntimeError(f"Unsupported vector DB version in {path}")
+
+        chunks = payload.get("chunks")
+        if not isinstance(chunks, list):
+            raise RuntimeError(f"Invalid vector DB file: {path}")
+
+        with self._lock:
+            self._document_id = payload.get("document_id")
+            self._chunks = chunks
+
+    def _save_persisted_index(self, doc_id: str | None, chunks: list[Chunk]) -> None:
+        path = self._settings.vector_db_path
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp_path = path.with_suffix(path.suffix + ".tmp")
+        payload = {
+            "version": VECTOR_DB_SCHEMA_VERSION,
+            "document_id": doc_id,
+            "chunks": chunks,
+        }
+
+        with tmp_path.open("wb") as file:
+            pickle.dump(payload, file, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp_path, path)
 
     def ingest(self, text: str, doc_id: str | None) -> tuple[str | None, int]:
         chunk_texts = split_text(
@@ -179,6 +215,7 @@ class RagService:
             self._document_id = doc_id
             self._chunks = chunks
 
+        self._save_persisted_index(doc_id, chunks)
         return doc_id, len(chunks)
 
     def retrieve(self, question: str, top_k: int | None = None) -> list[ScoredChunk]:

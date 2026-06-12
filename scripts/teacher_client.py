@@ -91,12 +91,13 @@ def command_register(args):
     print_json(result)
 
 
-def command_evaluate(_args):
+def command_evaluate(args):
     ensure_config()
+    document_received = bool(getattr(args, "skip_upload", False))
     result = request_json(
         "POST",
         "/competition/evaluate",
-        {"document_received": False},
+        {"document_received": document_received},
         timeout=900,
     )
     print_json(result)
@@ -128,6 +129,11 @@ def main():
     register_parser.set_defaults(func=command_register)
 
     evaluate_parser = subparsers.add_parser("evaluate")
+    evaluate_parser.add_argument(
+        "--skip-upload",
+        action="store_true",
+        help="Send document_received=true after vector DB has already been built.",
+    )
     evaluate_parser.set_defaults(func=command_evaluate)
 
     result_parser = subparsers.add_parser("result")

@@ -39,6 +39,8 @@ def health_check():
         "llm_base_url": settings.teacher_proxy_base_url,
         "embedding_model_path": str(settings.embedding_model_path),
         "embedding_model_path_exists": settings.embedding_model_path.is_dir(),
+        "vector_db_path": str(settings.vector_db_path),
+        "vector_db_path_exists": settings.vector_db_path.is_file(),
         "log_path": str(settings.log_path),
         "chunks": rag_service.chunk_count,
     }

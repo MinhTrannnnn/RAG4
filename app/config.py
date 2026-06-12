@@ -26,6 +26,7 @@ class Settings:
     llm_model: str
     llm_timeout_seconds: float
     embedding_model_path: Path
+    vector_db_path: Path
     chunk_size: int
     chunk_overlap: int
     top_k: int
@@ -55,6 +56,7 @@ def get_settings() -> Settings:
         embedding_model_path=_resolve_project_path(
             os.getenv("EMBEDDING_MODEL_PATH", "models/vietnamese-sbert")
         ),
+        vector_db_path=_resolve_project_path(os.getenv("VECTOR_DB_PATH", "data/vector_db.pkl")),
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         top_k=int(os.getenv("TOP_K", "8")),
